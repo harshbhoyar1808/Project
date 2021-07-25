@@ -1,0 +1,533 @@
+import os
+import sys
+import cv2
+import time
+from PyQt5.QtWidgets import *
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
+from PyQt5.QtMultimediaWidgets import *
+from PyQt5.QtMultimedia import *
+
+class Tracker():
+    def setmainwindow(self, mainwindow):
+        self.window = mainwindow
+
+    def __init__(self):
+        self.cascade =cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+
+    def track(self):
+        try:
+            self.video = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            self.window.trackingflag = True
+        except:
+            self.window.trackingflag = False
+            self.window.facetracking.setEnabled(self.window.trackingflag)
+            errorMsg = QMessageBox()
+            errorMsg.setIcon(QMessageBox.Critical)
+            errorMsg.setWindowIcon(QIcon('icons/mediaplayer.ico'))
+            errorMsg.setWindowTitle('Error')
+            errorMsg.setText('Unable To Access Camera ')
+            errorMsg.setStandardButtons(QMessageBox.Ok)
+            errorMsg.buttonClicked.connect(errorMsg.close)
+            errorMsg.show()
+        self.window.isvideooutputcreated = True
+        self.window.fullScreen.setEnabled(self.window.trackingflag)
+        while True:
+            self.flag = False
+            ret, self.frame = self.video.read()
+            gray = cv2.cvtColor(self.frame,cv2.COLOR_BGR2BGRA)
+            faces = self.cascade.detectMultiScale(gray, 1.3 ,5)
+            for (x, y, w, h) in faces:
+                self.window.mediaPlayer.play()
+                cv2.rectangle(self.frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                self.flag= True
+            if self.window.cameraoutput.isChecked():
+                cv2.imshow('Video', self.frame)
+            if cv2.waitKey(1) & 0xFF == ord('t'):
+                self.window.mediaPlayer.play()
+                self.window.istracking.setChecked(False)
+                break
+            if self.flag == False:
+                self.window.mediaPlayer.pause()
+            self.flag = True
+        self.stoptracking()
+
+    def stoptracking(self):
+        self.video.release()
+        self.window.isvideooutputcreated = False
+        cv2.destroyAllWindows()
+        self.window.play.setEnabled(True)
+
+class VideoWidget(QVideoWidget):
+    def setmainwindow(self, mainwindow):
+        self.window = mainwindow
+
+    def keyPressEvent(self, a0: QKeyEvent) -> None:
+        if Qt.ControlModifier and a0.key() == Qt.Key_O:
+            self.window.openvideo()
+        elif Qt.ControlModifier and a0.key() == Qt.Key_Q:
+            self.close()
+        elif a0.key() == Qt.Key_Left:
+            self.window.seekbackward()
+        elif a0.key() == Qt.Key_Space:
+            if self.window.play.isEnabled():
+                self.window.playvideo()
+        elif a0.key() == Qt.Key_Right:
+            self.window.seekforward()
+        elif a0.key() == Qt.Key_S:
+            self.setFullScreen(False)
+            self.window.facetracking.setEnabled(False)
+            self.window.stopvideo()
+        elif a0.key() == Qt.Key_F or a0.key() == Qt.Key_Escape:
+            self.window.fullScreen.setChecked(False)
+            self.setFullScreen(False)
+        elif a0.key() == Qt.Key_I:
+            self.window.showmsgbox()
+        elif a0.key() == Qt.Key_M:
+            self.window.setmuted()
+        elif a0.key() == Qt.Key_Down:
+            self.window.volumedown()
+        elif a0.key() == Qt.Key_Up:
+            self.window.volumeup()
+        elif a0.key() == Qt.Key_T and self.window.trackingflag:
+            self.window.istracking.setChecked(not(self.window.istracking.isChecked()))
+            self.window.track()
+            self.window.mediaPlayer.play()
+        elif a0.key() == Qt.Key_C:
+            self.window.cameraoutput.setChecked(not(self.window.cameraoutput.isChecked()))
+            self.window.showcameraoutput()
+
+    def closeEvent(self, a0: QCloseEvent) -> None:
+        if self.window.isvideooutputcreated:
+            self.window.tracker.stoptracking()
+        self.window._storeInfo()
+        self.window.close()
+
+    def mouseDoubleClickEvent(self, a0: QMouseEvent) -> None:
+        if self.window.mediaPlayer.state() == QMediaPlayer.PlayingState:
+            if self.isFullScreen():
+                self.setFullScreen(False)
+                self.window.fullScreen.setChecked(False)
+            else:
+                self.setFullScreen(True)
+                self.window.fullScreen.setChecked(True)
+
+class Player(QMainWindow):
+    def __init__(self):
+        super(Player, self).__init__()
+        self.setWindowTitle('Look Based Media Player')
+        dim =QDesktopWidget().screenGeometry()
+        self.setGeometry(0,0,dim.width(),dim.height())
+        self.setMinimumSize( int(dim.width()*(3/4)), int(dim.height()*(3/4)) )
+        self.setContentsMargins(0,0,0,0)
+        self.setWindowIcon(QIcon('icons/mediaplayer.ico'))
+        self.mediaPlayer = QMediaPlayer(None, QMediaPlayer.VideoSurface)
+        self.__init__player()
+        self.trackingflag = True
+        self.isvideooutputcreated = False
+        self.framenum = 0
+        self.filepath = ''
+        self.CancelF = False
+        try:
+            self.tracker = Tracker()
+        except:
+            self.trackingflag = False
+            errorMsg = QMessageBox()
+            errorMsg.setIcon(QMessageBox.Critical)
+            errorMsg.setWindowIcon(QIcon('icons/mediaplayer.ico'))
+            errorMsg.setWindowTitle('Error')
+            errorMsg.setText('Unable To Use FaceTracking')
+            errorMsg.setStandardButtons(QMessageBox.Ok)
+            errorMsg.buttonClicked.connect(errorMsg.close)
+            errorMsg.exec_()
+        self.tracker.setmainwindow(self)
+        self.showMaximized()
+        if os.path.isfile('data.txt') and os.path.isfile('path.txt'):
+            tocontinue = QMessageBox()
+            tocontinue.setIcon(QMessageBox.Question)
+            tocontinue.setText('Would you like to continue your last played video?')
+            try:
+                with open('path.txt', 'r') as file:
+                    self.filepath = file.read()
+                    if not os.path.isfile(self.filepath):
+                        raise
+                with open('data.txt', 'r') as file:
+                    self.frame = int(file.readline())
+                    duration = int(file.read())
+            except Exception as e:
+                try:
+                    os.remove('path.txt')
+                    os.remove('data.txt')
+                except:
+                    pass
+                errormsg = QMessageBox()
+                errormsg.setIcon(QMessageBox.Critical)
+                errormsg.setWindowIcon(QIcon('icons/mediaplayer.ico'))
+                errormsg.setWindowTitle('Error')
+                errormsg.setText('Unable to retrive previous media information')
+
+                errormsg.setDetailedText(str(e)+'\nFile Missing in specified directory :\n'+self.filepath[0:-len(self.filepath.split('/')[len(self.filepath.split('/'))-1])])
+                errormsg.setStandardButtons(QMessageBox.Ok)
+                errormsg.buttonClicked.connect(errormsg.close)
+                errormsg.exec_()
+                self.filepath = ''
+                self.framenum = 0
+                return
+            tocontinue.setDetailedText('File   : ' + self.filepath.split('/')[len(self.filepath.split('/'))-1] + '\nPath : ' + self.filepath)
+            tocontinue.setStandardButtons(QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+            tocontinue.setWindowIcon(QIcon('icons/mediaplayer.ico'))
+            self.reply = tocontinue.exec_()
+            if self.reply == QMessageBox.Yes:
+                self.mediaPlayer.setMedia(QMediaContent(QUrl.fromLocalFile(self.filepath)))
+                self.mediaPlayer.play()
+                self.setenabled(True)
+                if self.frame == duration:
+                    self.videoLength.setValue(0)
+                    self.mediaPlayer.setPosition(0)
+                else:
+                   self.videoLength.setValue(self.frame)
+                   self.mediaPlayer.setPosition(self.frame)
+                   if self.trackingflag:
+                       self.facetracking.setEnabled(True)
+                       if self.istracking.isChecked():
+                           self.track()
+            elif self.reply == QMessageBox.Cancel:
+                self.CancelF = True
+            elif self.reply == QMessageBox.No:
+                self.filepath = ''
+                try:
+                    os.remove('data.txt')
+                    os.remove('path.txt')
+                except:
+                    pass
+
+    def __init__player(self):
+        self.video = VideoWidget()
+        self.video.setmainwindow(mainwindow=self)
+        self.video.setStyleSheet('background-color : #1f1f1f')
+
+        self.mediaPlayer.setVideoOutput(self.video)
+        self.mediaPlayer.error.connect(self.showerror)
+
+        self.openVideo = QAction(QIcon('icons/openfile.ico'),'Open Video',self)
+        self.openVideo.setShortcut('Ctrl+O')
+
+        self.exitApp = QAction(QIcon('icons/exit.ico'),'Exit',self)
+        self.exitApp.setShortcut('Ctrl+Q')
+
+        self.istracking = QAction('Turn On Tracking', self)
+        self.istracking.setCheckable(True)
+        self.istracking.setChecked(True)
+        self.istracking.setShortcut('T')
+
+        self.cameraoutput = QAction('Show Camera Output')
+        self.cameraoutput.setCheckable(True)
+        self.cameraoutput.setChecked(True)
+        self.cameraoutput.setShortcut('C')
+
+        self.facetracking = QMenu('Face Tracking', self)
+        self.facetracking.setIcon(QIcon('icons/facetracking.ico'))
+        self.facetracking.addAction(self.istracking)
+        self.facetracking.addAction(self.cameraoutput)
+        self.facetracking.setEnabled(False)
+
+        self.information = QAction(QIcon('icons/information.ico'),'Shortcut Keys',self)
+        self.information.setShortcut('I')
+
+        self._menuBar = self.menuBar()
+        self._menuBar.setStyleSheet('background-color: lightgray')
+
+        self.optionsMenu = self._menuBar.addMenu(QIcon('icons/options.ico'),'Options')
+        self.optionsMenu.addAction(self.openVideo)
+        self.optionsMenu.addMenu(self.facetracking)
+        self.optionsMenu.addAction(self.information)
+        self.optionsMenu.addAction(self.exitApp)
+
+        self.back = QPushButton()
+        self.back.setIcon(QIcon(self.style().standardIcon(QStyle.SP_MediaSeekBackward)))
+        self.back.setShortcut('left')
+
+        self.play = QPushButton()
+        self.play.setIcon(QIcon(self.style().standardIcon(QStyle.SP_MediaPlay)))
+        self.play.setShortcut('space')
+        self.play.setFixedSize(30,30)
+
+        self.forward = QPushButton()
+        self.forward.setIcon(QIcon(self.style().standardIcon(QStyle.SP_MediaSeekForward)))
+        self.forward.setShortcut('right')
+
+        self.stop = QPushButton()
+        self.stop.setIcon(QIcon(self.style().standardIcon(QStyle.SP_MediaStop)))
+        self.stop.setShortcut('S')
+
+        self.fullScreen = QPushButton()
+        self.fullScreen.setIcon(QIcon('icons/fullscreen.ico'))
+        self.fullScreen.setCheckable(True)
+        self.fullScreen.setShortcut('F')
+
+        self.timeelpsed = QLabel('00:00')
+
+        self.videoLength = QSlider(Qt.Horizontal)
+        self.videoLength.setRange(0,0)
+
+        self.playtime = QLabel('00:00')
+
+        self.volumeSlider= QSlider(Qt.Horizontal)
+        self.volumeSlider.setRange(0,100)
+        self.volumeSlider.setMaximumWidth(130)
+        self.volumeSlider.setSliderPosition(50)
+        self.mediaPlayer.setVolume(self.volumeSlider.value())
+
+        self.volLable = QLabel()
+        icon = QIcon(self.style().standardIcon(QStyle.SP_MediaVolume))
+        pixmap = QPixmap(icon.pixmap(QSize(64,64)))
+        self.volLable.setPixmap(pixmap)
+
+        self.setenabled(False)
+
+        self.widget = QWidget()
+
+        self.controlsDock = QHBoxLayout()
+        self.controlsDock.setContentsMargins(0,0,0,0)
+        self.controlsDock.addWidget(self.back)
+        self.controlsDock.addWidget(self.play)
+        self.controlsDock.addWidget(self.forward)
+        self.controlsDock.addWidget(self.stop)
+        self.controlsDock.addWidget(self.fullScreen)
+        self.controlsDock.addWidget(self.timeelpsed)
+        self.controlsDock.addWidget(self.videoLength)
+        self.controlsDock.addWidget(self.playtime)
+        self.controlsDock.addWidget(self.volLable)
+        self.controlsDock.addWidget(self.volumeSlider)
+
+        self.layout = QVBoxLayout()
+        self.setContentsMargins(0,0,0,0)
+        self.layout.addWidget(self.video)
+        self.layout.addLayout(self.controlsDock)
+
+        self.widget.setLayout(self.layout)
+
+        self.setCentralWidget(self.widget)
+
+        self.openVideo.triggered.connect(self.openvideo)
+        self.mediaPlayer.stateChanged.connect(self.mediastatuschanged)
+        self.mediaPlayer.durationChanged.connect(self.setduration)
+        self.mediaPlayer.positionChanged.connect(self.setsliderposition)
+        self.videoLength.valueChanged.connect(self.setvideoposition)
+        self.exitApp.triggered.connect(self.close)
+        self.play.clicked.connect(self.playvideo)
+        self.stop.clicked.connect(self.stopvideo)
+        self.volumeSlider.valueChanged.connect(self.volumechanged)
+        self.fullScreen.clicked.connect(self.tofullscreen)
+        self.back.clicked.connect(self.seekbackward)
+        self.forward.clicked.connect(self.seekforward)
+        self.information.triggered.connect(self.showmsgbox)
+        self.istracking.triggered.connect(self.track)
+        self.cameraoutput.triggered.connect(self.showcameraoutput)
+        QShortcut(Qt.Key_Up, self.widget ,self.volumeup)
+        QShortcut(Qt.Key_Down, self.widget ,self.volumedown)
+        QShortcut(Qt.Key_M, self.widget ,self.setmuted)
+
+    def showcameraoutput(self):
+        if not self.cameraoutput.isChecked() and self.isvideooutputcreated:
+            self.tracker.stoptracking()
+            self.track()
+
+    def showerror(self):
+        errormsg = QMessageBox()
+        errormsg.setIcon(QMessageBox.Critical)
+        errormsg.setWindowIcon(QIcon('icons/mediaplayer.ico'))
+        errormsg.setWindowTitle('Error')
+        errormsg.setText('Error occured while loading media')
+        errormsg.setStandardButtons(QMessageBox.Ok)
+        errormsg.buttonClicked.connect(errormsg.close)
+        errormsg.exec_()
+
+    def showmsgbox(self):
+        self.msg = QMessageBox()
+        self.msg.setIcon(QMessageBox.Information)
+        self.msg.setStandardButtons(QMessageBox.Close)
+        self.msg.setWindowIcon(QIcon('icons/mediaplayer.ico'))
+        self.msg.setWindowTitle('Information')
+        self.msg.setText('Shortcut Keys :')
+        self.msg.setWindowIcon(QIcon('icons/information.ico'))
+        self.msg.setInformativeText('Open Video\t\t: Ctrl+O\nPlay/Pause\t\t: Spacebar\nSeek Backward\t\t: Left Arrow\nSeek Forward\t\t: Right Arrow\nStop Video\t\t: S\nFullscreen (On/Off)\t: F\nVolume Up\t\t: Up Arrow\nVolume Down\t\t: Down Arrow\nMute(On/Off)\t\t: M\nFace Tracking\t\t: T\nShow Camera Output\t: C\nInformation\t\t: I\nExit\t\t\t: Ctrl+Q')
+        self.msg.buttonClicked.connect(self.msg.close)
+        self.msg.exec_()
+
+    def setenabled(self, bool):
+        self.back.setEnabled(bool)
+        self.play.setEnabled(bool)
+        self.forward.setEnabled(bool)
+        self.stop.setEnabled(bool)
+        self.fullScreen.setEnabled(bool)
+
+    def setmuted(self):
+        if self.mediaPlayer.isMuted():
+            self.mediaPlayer.setMuted(False)
+            icon = QIcon(self.style().standardIcon(QStyle.SP_MediaVolume))
+            pixmap = QPixmap(icon.pixmap(QSize(64, 64)))
+            self.volLable.setPixmap(pixmap)
+        else:
+            self.mediaPlayer.setMuted(True)
+            icon = QIcon(self.style().standardIcon(QStyle.SP_MediaVolumeMuted))
+            pixmap = QPixmap(icon.pixmap(QSize(64, 64)))
+            self.volLable.setPixmap(pixmap)
+
+    def volumeup(self):
+        self.volumeSlider.setValue(self.volumeSlider.value() + 2)
+
+    def volumedown(self):
+        self.volumeSlider.setValue(self.volumeSlider.value() - 2)
+
+    def stopvideo(self):
+        if self.video.isFullScreen():
+            self.window.fullScreen.setChecked(False)
+        self.setenabled(False)
+        self.play.setEnabled(True)
+        if self.trackingflag and self.isvideooutputcreated:
+            self.tracker.stoptracking()
+        self.mediaPlayer.stop()
+
+    def seekbackward(self):
+        self.videoLength.setValue(self.videoLength.value()-5000)
+
+    def seekforward(self):
+        self.videoLength.setValue(self.videoLength.value()+5000)
+
+    def setduration(self):
+        duration = self.mediaPlayer.duration()
+        self.videoLength.setRange(0,duration)
+        t = time.strftime('%H:%M:%S', time.gmtime(duration / 1000))
+        self.playtime.setText(t)
+
+    def setsliderposition(self,position):
+        self.videoLength.setValue(position)
+        self.framenum = position
+        t = time.strftime('%H:%M:%S', time.gmtime(position / 1000))
+        self.timeelpsed.setText(t)
+
+    def setvideoposition(self, value):
+        self.mediaPlayer.setPosition(value)
+
+    def openvideo(self):
+        self.filepath = QFileDialog.getOpenFileName(self, 'Open Video', '', '(*.mp4 *.mkv *.mov *.avi *.webm)')[0]
+        self.CancelF = False
+        if self.filepath != '':
+            self.mediaPlayer.setMedia(QMediaContent(QUrl.fromLocalFile(self.filepath)))
+            self.setenabled(True)
+            self.mediaPlayer.play()
+            if self.trackingflag:
+                self.facetracking.setEnabled(True)
+                if self.istracking.isChecked():
+                    self.track()
+
+    def playvideo(self):
+        self.setenabled(True)
+        if self.mediaPlayer.state() == QMediaPlayer.PausedState or self.mediaPlayer.state() == QMediaPlayer.StoppedState:
+            self.mediaPlayer.play()
+            if self.istracking.isChecked() and self.trackingflag:
+                self.track()
+        else:
+            self.mediaPlayer.pause()
+
+    def tofullscreen(self):
+        if not self.video.isFullScreen():
+            self.video.setFullScreen(True)
+        else:
+            self.video.setFullScreen(False)
+
+    def mediastatuschanged(self):
+        if self.mediaPlayer.state() == QMediaPlayer.PlayingState:
+            self.istracking.setEnabled(True)
+            self.play.setIcon(QIcon(self.style().standardIcon(QStyle.SP_MediaPause)))
+        elif self.mediaPlayer.state() == QMediaPlayer.PausedState:
+            self.play.setIcon(QIcon(self.style().standardIcon(QStyle.SP_MediaPlay)))
+        elif self.mediaPlayer.state() == QMediaPlayer.StoppedState:
+            self.istracking.setEnabled(False)
+            self.play.setIcon(QIcon(self.style().standardIcon(QStyle.SP_MediaPlay)))
+            self.fullScreen.setEnabled(False)
+            if self.trackingflag and self.isvideooutputcreated and not self.istracking.isChecked():
+                self.tracker.stoptracking()
+
+    def volumechanged(self):
+        self.mediaPlayer.setVolume(self.volumeSlider.value())
+        self.mediaPlayer.setMuted(False)
+        if self.volumeSlider.value() == 0:
+            icon = QIcon(self.style().standardIcon(QStyle.SP_MediaVolumeMuted))
+            pixmap = QPixmap(icon.pixmap(QSize(64, 64)))
+            self.volLable.setPixmap(pixmap)
+        else:
+            icon = QIcon(self.style().standardIcon(QStyle.SP_MediaVolume))
+            pixmap = QPixmap(icon.pixmap(QSize(64, 64)))
+            self.volLable.setPixmap(pixmap)
+
+    def track(self):
+        if self.trackingflag:
+            if  self.isvideooutputcreated and not self.istracking.isChecked():
+                self.tracker.stoptracking()
+                self.play.setEnabled(True)
+                self.mediaPlayer.play()
+            else:
+                self.setenabled(True)
+                self.play.setEnabled(False)
+                try:
+                    self.tracker.track()
+                except:
+                    self.tracker.stoptracking()
+
+    def closeEvent(self, a0: QCloseEvent) -> None:
+        if self.isvideooutputcreated:
+            self.tracker.stoptracking()
+        self._storeInfo()
+        sys.exit()
+
+    def _storeInfo(self):
+        if self.filepath != '':
+            try:
+                if self.CancelF:
+                    file = open('path.txt','r')
+                    val1 = file.read()
+                    file.close()
+                    file = open('path.txt','w')
+                    file.write(val1)
+                    file.close()
+                    file = open('data.txt','r')
+                    val2 = int(file.readline())
+                    val3 = int(file.read())
+                    file.close()
+                    file = open('data.txt','w')
+                    file.write(str(val2)+'\n'+str(val3))
+                    file.close()
+                else:
+                    with open('path.txt', 'w') as file:
+                        file.write(self.filepath)
+                    with open('data.txt', 'w') as file:
+                        file.write(str(self.framenum)+'\n'+str(self.mediaPlayer.duration()))
+            except Exception as e:
+                try:
+                    os.remove('path.txt')
+                    os.remove('data.txt')
+                except:
+                    pass
+                self.mediaPlayer.stop()
+                errormsg = QMessageBox()
+                errormsg.setIcon(QMessageBox.Critical)
+                errormsg.setWindowIcon(QIcon('icons/mediaplayer.ico'))
+                errormsg.setWindowTitle('Error')
+                errormsg.setText('Unable to save media information')
+                errormsg.setDetailedText(str(e))
+                errormsg.setStandardButtons(QMessageBox.Ok)
+                errormsg.buttonClicked.connect(errormsg.close)
+                errormsg.exec_()
+        else:
+            try:
+                os.remove('path.txt')
+                os.remove('data.txt')
+            except:
+                pass
+
+if __name__ == '__main__':
+    LBMediaPlayerApp=QApplication(sys.argv)
+    play = Player()
+    sys.exit(LBMediaPlayerApp.exec_())
