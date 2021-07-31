@@ -2,4 +2,5 @@
 This Folder consist of all my mini projects that I have done till today
 
 My Project list :
-1. Weather API using javascript,html,css.
+1.Look Based Media Player using python (OpenCV).
+2. Weather API using javascript,html,css.
