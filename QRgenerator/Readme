@@ -1,0 +1,5 @@
+Mini Project : Qrcode Generatoe
+
+The site is able to take input in text area and generate a qr-code .
+It use a "https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${input}" api which provide us a qrcode.
+But the problem is such that I am not able to scan the qrcode , so need to work on this .
